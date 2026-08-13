@@ -31,8 +31,9 @@ const FFMPEG = process.env.FFMPEG
 const FONT = process.env.BANNER_FONT ?? "Menlo";   // resolved via fontconfig
 const FONTSIZE = process.env.BANNER_FONTSIZE ?? "h/26";
 const PRE_S = 2.5;          // segment starts this long before the light
-const POST_S = 1.0;         // and ends this long after it
-const REPLAY_FROM = 0.8;    // slow replay covers light-0.8s .. light+0.1s
+const POST_S = 1.8;         // and ends this long after it — long enough to dwell on the lit lamp
+const REPLAY_FROM = 0.8;    // slow replay covers light-REPLAY_FROM .. light+REPLAY_TO
+const REPLAY_TO = 0.6;      // replay runs past the light so each touch ENDS on a lit lamp
 const REPLAY_FACTOR = 4;
 
 // clips/touches.csv: touch_id,clip,light_time_s  (skip header and # comments)
@@ -136,7 +137,7 @@ for (const r of rows) {
   writeFileSync(txtReplay, bannerLines(r, gt, true).join("\n"));
   const segReplay = join(segDir, `${r.touch_id}-replay.mp4`);
   ffmpeg([
-    "-ss", Math.max(0, t.light - REPLAY_FROM).toFixed(3), "-to", (t.light + 0.1).toFixed(3), "-i", t.clip,
+    "-ss", Math.max(0, t.light - REPLAY_FROM).toFixed(3), "-to", (t.light + REPLAY_TO).toFixed(3), "-i", t.clip,
     "-vf", `setpts=${REPLAY_FACTOR}*PTS,${drawtext(txtReplay)}`,
     ...ENC, segReplay,
   ]);
