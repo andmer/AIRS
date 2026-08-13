@@ -20,9 +20,22 @@ minutes and a meaningful amount of subscription usage; say so before starting.
 ## Phase 1 — detect lamp events
 
 `node scripts/detect-lights.mjs $ARGUMENTS` → one line per candidate: `onset end sides(L|R|L+R)`.
-Calibrated for USA Fencing 720p stream framing (overhead lamp panels). If output is empty
-or absurd, extract a frame at a known touch, locate the lamp panels visually, and re-run
-with `LAMP_LEFT/LAMP_RIGHT/LAMP_L_THRESH/LAMP_R_THRESH` env overrides.
+Defaults are calibrated for USA Fencing 720p stream framing (overhead lamp panels).
+
+**Calibrate before trusting it.** Find one clearly-lit moment and one calm moment (a
+quick 1fps contact-sheet sweep of a 30s window works), then measure the lamp crops:
+`ffmpeg -ss <t> -i <video> -frames:v 1 -vf "crop=<w:h:x:y>,signalstats,metadata=print" -f null -`
+and read UAVG/VAVG. Baseline V ≈ 130; left lamp lit (red) pushes V up (+10 or more),
+right lamp lit (green) pulls V down. Set thresholds ~6 below/above the lit values via
+`LAMP_LEFT/LAMP_RIGHT/LAMP_L_THRESH/LAMP_R_THRESH` env overrides.
+
+**Expect junk.** On cut-heavy broadcasts, half or more of the detections can be replays,
+pre-bout graphics, or camera-cut artifacts — that is what Phase 2's classification is
+for. A short lamp interval (<0.5s) usually means a camera cut truncated it, not a short
+light: the onset may be real but verify it (see anchor refinement below). If detection
+looks very noisy, a full-match 1fps timestamped contact-sheet survey
+(`fps=1,scale=212:-2,drawtext=...pts...,tile=6x5`) is the reliable cross-check — it also
+reveals score changes that happen with NO lamps (cards), which detection alone cannot see.
 
 ## Phase 2 — classify events and read ground truth (you, visually)
 
@@ -36,12 +49,29 @@ Read them in batches (tile several per image if helpful). For each event decide:
 - **Score** from the clearest display (overhead panels or bottom overlay), as-seen
   left|right. Screen-left fencer is "left" everywhere in this system.
 
+**Orientation self-check (do this first):** on the first two or three single-lamp
+events, the lit side MUST match the side whose score increments. If it doesn't, the lamp
+crops are swapped or the orientation assumption is wrong — stop and recalibrate before
+deriving anything.
+
 Then fold live events in order against the running score:
-- left +1 → ref call `left`; right +1 → `right`; unchanged + both lamps → `simultaneous`;
-  unchanged + single lamp → annulled, EXCLUDE with a note.
-- Score changed with NO lamp event between two touches → card-awarded point: not a
-  phrase, exclude and note it in the final report.
-- Any other jump → flag for manual review; do not guess.
+- left +1 → ref call `left`; right +1 → `right`; unchanged + single lamp → annulled,
+  EXCLUDE with a note.
+- unchanged + both lamps → `simultaneous` — but NEVER conclude this from one frame.
+  Video-reviewed touches settle 10–25 s late; confirm with a second, later frame (up to
+  the next event's onset, or +25 s for the last event) before calling it simultaneous.
+- Jump of 2, or a change that contradicts the lamp sides → there is probably a
+  card-awarded point (score change with no lamps) hiding between the two events:
+  extract a few frames across the gap, locate the no-lamp score change, EXCLUDE it as a
+  card with a note, and keep the lamp event's own attribution. Only flag for manual
+  review if you genuinely cannot resolve it — do not guess.
+
+**Anchor refinement:** for any suspect onset (short/truncated lamp interval, camera cut
+or pan near the light, or later, a perception agent reporting the action far from t=0),
+extract a dense strip (2–10 fps tiled, or 30 fps over a ±1 s window, cropped if helpful)
+and set the anchor at the first visibly-lit frame. When live lamps were cut away from,
+the broadcast replay a few seconds later usually shows which lamps lit — use it for
+`context.json`, and note the uncertainty.
 
 Tiers: single-light → 1; two-light → 2; video-reviewed/messy → 3 (your judgment, noted
 as non-referee judgment).
@@ -61,7 +91,10 @@ a light late on camera cuts): re-extract with a corrected time and re-run that t
 
 ## Phase 4 — perception subagents (model: sonnet, one per touch, parallel batches of ~10)
 
-Prompt template (substitute <id>; keep verbatim otherwise):
+Prompt template (substitute <id>; keep verbatim otherwise). For touches with a known
+anomaly (camera pan, cut, uncertain anchor), append one factual sentence to step 2 —
+e.g. "NOTE: the camera pans during this phrase — report what is genuinely visible and
+degrade perception_quality honestly." Never hint at lights, calls, or expectations.
 
 > Working directory: <project root>
 >
@@ -85,9 +118,12 @@ Prompt template (substitute <id>; keep verbatim otherwise):
 ## Phase 6 — outputs
 
 1. `node scripts/assemble-interactive.mjs <prefix>` → results/run-<stamp>-interactive.jsonl
+   (must report 0 failed; chase any missing p1/p2 before continuing)
 2. `node scripts/score.mjs <results file>` — the agreement report
 3. `node scripts/review.mjs <results file>` — per-touch review page
 4. `node scripts/render.mjs <results file>` — annotated match video
+5. Verify the render: extract one frame from a known touch's segment and confirm the
+   banner text (id, AIRS call, REF call) is present and correct before reporting.
 
 ## Final report
 
