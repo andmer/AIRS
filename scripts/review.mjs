@@ -53,8 +53,13 @@ function frameImages(touchId) {
 
 // --------------------------------------------------------------------------- timeline
 
+// Mirrored converging axes, matching the video render: the left fencer's lane runs
+// left→centre, the right fencer's runs right→centre, and both progress lines meet
+// at the centre LIGHT line at the instant the lamps fire.
 const T0 = -2100, T1 = 180, W = 1060, H = 190;
-const xOf = (ms) => Math.round(((ms - T0) / (T1 - T0)) * W);
+const ML = 8, MR = W - 8, CX = W / 2, HALF = CX - ML;
+const xL = (ms) => Math.round(ML + ((ms - T0) / (0 - T0)) * HALF);
+const xR = (ms) => Math.round(MR - ((ms - T0) / (0 - T0)) * HALF);
 
 function markersFor(fencer) {
   const m = [];
@@ -68,10 +73,12 @@ function markersFor(fencer) {
   return m.sort((a, b) => a.ms - b.ms);
 }
 
-function lane(markers, y, color) {
-  let s = `<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="#3a3b3e"/>`;
+function lane(markers, y, color, axis) {
+  let s = `<line x1="${ML}" y1="${y}" x2="${MR}" y2="${y}" stroke="#3a3b3e"/>`;
+  for (let ms = -2000; ms <= 0; ms += 500)
+    s += `<line x1="${axis(ms)}" y1="${y - 4}" x2="${axis(ms)}" y2="${y + 4}" stroke="#55565a"/>`;
   markers.forEach((m, i) => {
-    const px = xOf(m.ms);
+    const px = axis(m.ms);
     const above = i % 2 === 0;
     s += `<circle class="dot" data-ms="${m.ms}" cx="${px}" cy="${y}" r="4" fill="${color}"><title>${esc(m.label)} ${fmtMs(m.ms)}</title></circle>`;
     s += `<text class="lbl" data-ms="${m.ms}" x="${px}" y="${above ? y - 9 : y + 17}" text-anchor="middle" font-size="10" fill="${color}">${esc(m.label)} ${fmtMs(m.ms)}</text>`;
@@ -82,32 +89,30 @@ function lane(markers, y, color) {
 function timelineSvg(p) {
   if (!p) return "";
   const yL = 46, yB = 96, yR = 146;
-  let s = `<svg viewBox="0 0 ${W} ${H}" class="tl" data-t0="${T0}" data-t1="${T1}" data-w="${W}" style="width:100%;background:#17181a;border:1px solid #333;border-radius:6px">`;
-  for (let ms = -2000; ms <= 0; ms += 500) {
-    s += `<line x1="${xOf(ms)}" y1="20" x2="${xOf(ms)}" y2="${H - 22}" stroke="#26272a"/>`;
-    s += `<text x="${xOf(ms)}" y="${H - 8}" text-anchor="middle" font-size="10" fill="#9a9a92">${fmtMs(ms)}</text>`;
-  }
-  s += `<line class="lightline" x1="${xOf(0)}" y1="14" x2="${xOf(0)}" y2="${H - 22}" stroke="#f59e0b" stroke-width="2"/>`;
-  s += `<text x="${xOf(0)}" y="12" text-anchor="middle" font-size="10" fill="#f5b942">LIGHT</text>`;
+  let s = `<svg viewBox="0 0 ${W} ${H}" class="tl" data-t0="${T0}" data-t1="${T1}" data-ml="${ML}" data-mr="${MR}" data-half="${HALF}" style="width:100%;background:#17181a;border:1px solid #333;border-radius:6px">`;
+  s += `<line class="lightline" x1="${CX}" y1="14" x2="${CX}" y2="${H - 10}" stroke="#f59e0b" stroke-width="2"/>`;
+  s += `<text x="${CX}" y="12" text-anchor="middle" font-size="10" fill="#f5b942">LIGHT</text>`;
   s += `<text x="4" y="${yL - 18}" font-size="11" font-weight="bold" fill="#5b9dff">LEFT</text>`;
   s += `<text x="4" y="${yR + 26}" font-size="11" font-weight="bold" fill="#ff7069">RIGHT</text>`;
-  s += lane(markersFor(p.left), yL, "#5b9dff");
-  s += lane(markersFor(p.right), yR, "#ff7069");
+  s += `<text x="${ML}" y="${yL + 28}" font-size="10" fill="#77787c">-2000ms</text>`;
+  s += `<text x="${MR}" y="${yR - 22}" text-anchor="end" font-size="10" fill="#77787c">-2000ms</text>`;
+  s += lane(markersFor(p.left), yL, "#5b9dff", xL);
+  s += lane(markersFor(p.right), yR, "#ff7069", xR);
+  // Blade contacts approach the centre as the clash nears (left-style axis).
   const contacts = (p.blade_contact ?? []).filter((c) => c.ms != null);
   contacts.forEach((c, i) => {
-    const px = xOf(c.ms);
+    const px = xL(c.ms);
     s += `<rect class="dot" data-ms="${c.ms}" x="${px - 4}" y="${yB - 4}" width="8" height="8" transform="rotate(45 ${px} ${yB})" fill="#b191ff"><title>${esc(c.description ?? "")}</title></rect>`;
     s += `<text class="lbl" data-ms="${c.ms}" x="${px}" y="${i % 2 === 0 ? yB - 9 : yB + 17}" text-anchor="middle" font-size="10" fill="#b191ff">contact/${esc(c.deflection)} ${fmtMs(c.ms)}</text>`;
   });
-  // Playback layer: progress lines sweep each lane on the shared clock, a playhead
-  // crosses both lanes, tips glow, and the light line bursts at t=0. All driven by
-  // the inline player script; invisible until playback starts.
-  s += `<line class="prog prog-l" x1="0" y1="${yL}" x2="0" y2="${yL}"/>`;
-  s += `<line class="prog prog-r" x1="0" y1="${yR}" x2="0" y2="${yR}"/>`;
-  s += `<line class="ph" x1="0" y1="14" x2="0" y2="${H - 22}"/>`;
-  s += `<circle class="tip tip-l" cx="0" cy="${yL}" r="5"/>`;
-  s += `<circle class="tip tip-r" cx="0" cy="${yR}" r="5"/>`;
-  s += `<circle class="flash" cx="${xOf(0)}" cy="${yB}" r="12"/>`;
+  // Playback layer: the blue line grows in from the left edge, the red line from
+  // the right edge, and their glowing tips meet at the centre LIGHT line at t=0
+  // (flash burst at the meeting point). Driven by the inline player script.
+  s += `<line class="prog prog-l" x1="${ML}" y1="${yL}" x2="${ML}" y2="${yL}"/>`;
+  s += `<line class="prog prog-r" x1="${MR}" y1="${yR}" x2="${MR}" y2="${yR}"/>`;
+  s += `<circle class="tip tip-l" cx="${ML}" cy="${yL}" r="5"/>`;
+  s += `<circle class="tip tip-r" cx="${MR}" cy="${yR}" r="5"/>`;
+  s += `<circle class="flash" cx="${CX}" cy="${yB}" r="12"/>`;
   return s + `</svg>`;
 }
 
@@ -129,6 +134,8 @@ function filmstrip(touchId, p) {
 function playerBar() {
   return `<div class="player">
     <button class="pp" type="button">&#9654; Play</button>
+    <button class="stepb sprev" type="button" title="previous frame (&#8592;)">|&#9664;</button>
+    <button class="stepb snext" type="button" title="next frame (&#8594;)">&#9654;|</button>
     <input class="scrub" type="range" min="${T0}" max="${T1}" step="5" value="${T0}">
     <span class="tro">${T0}ms</span>
     <label class="spdl">speed <select class="spd">
@@ -231,6 +238,9 @@ const html = `<!doctype html><html><head><meta charset="utf-8">
   .player { display: flex; align-items: center; gap: 10px; margin: 2px 0 8px; }
   .player button { background: #26272a; color: #e7e7e2; border: 1px solid #444; border-radius: 6px; padding: 4px 14px; font-size: 13px; cursor: pointer; min-width: 92px; }
   .player button:hover { background: #333; }
+  .player .stepb { min-width: 44px; padding: 4px 8px; font-family: monospace; }
+  .touch.active .viewer { border-color: #f59e0b; }
+  .touch.active .player .pp { border-color: #f59e0b; }
   .scrub { flex: 1; accent-color: #f59e0b; }
   .tro { font-family: monospace; font-size: 12px; color: #f2c66d; min-width: 66px; text-align: right; }
   .spdl { font-size: 12px; color: #9a9a92; }
@@ -244,13 +254,12 @@ const html = `<!doctype html><html><head><meta charset="utf-8">
   svg.tl.playing .lbl { opacity: .18; }
   svg.tl.playing .dot.on { opacity: 1; transform: scale(1.3); filter: drop-shadow(0 0 3px rgba(255,255,255,.7)); }
   svg.tl.playing .lbl.on { opacity: 1; }
-  svg.tl .prog, svg.tl .tip, svg.tl .ph { display: none; }
-  svg.tl.playing .prog, svg.tl.playing .tip, svg.tl.playing .ph { display: block; }
+  svg.tl .prog, svg.tl .tip { display: none; }
+  svg.tl.playing .prog, svg.tl.playing .tip { display: block; }
   svg.tl .prog-l { stroke: #5b9dff; stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 0 4px #5b9dff); }
   svg.tl .prog-r { stroke: #ff7069; stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 0 4px #ff7069); }
   svg.tl .tip-l { fill: #cfe3ff; filter: drop-shadow(0 0 5px #5b9dff); }
   svg.tl .tip-r { fill: #ffd9d7; filter: drop-shadow(0 0 5px #ff7069); }
-  svg.tl .ph { stroke: #e7e7e2; stroke-width: 1; opacity: .55; stroke-dasharray: 3 3; }
   svg.tl .flash { fill: #f59e0b; opacity: 0; pointer-events: none; }
   svg.tl.lit .flash { animation: flashburst .8s ease-out; }
   svg.tl.lit .lightline { filter: drop-shadow(0 0 7px #f59e0b); }
@@ -270,15 +279,26 @@ const html = `<!doctype html><html><head><meta charset="utf-8">
 <h1>Touch review — ${esc(title)}</h1>
 ${meta?.stub ? `<p class="stub-banner">STUB RUN — canned responses, not real analysis</p>` : ""}
 ${meta ? `<p class="meta">models ${esc(meta.perception_model)} → ${esc(meta.adjudication_model)} · prompts ${esc(meta.prompts_sha256)} · ${esc(meta.run_at)}${meta.mode ? ` · mode ${esc(meta.mode)}` : ""}</p>` : ""}
+<p class="meta">keyboard: space = play/pause · &#8592; / &#8594; = frame-by-frame (applies to the highlighted touch)</p>
 ${rows.map(touchSection).join("\n")}
 <script>
 (() => {
+  const players = [];
+  let active = null;
+  function setActive(pl) {
+    if (active === pl) return;
+    if (active) active.sec.classList.remove("active");
+    active = pl;
+    if (pl) pl.sec.classList.add("active");
+  }
+
   for (const sec of document.querySelectorAll("section.touch")) {
     const svg = sec.querySelector("svg.tl");
     const strip = sec.querySelector(".filmstrip");
     if (!svg || !strip) continue;
-    const T0 = +svg.dataset.t0, T1 = +svg.dataset.t1, Wd = +svg.dataset.w;
-    const xOf = (ms) => ((ms - T0) / (T1 - T0)) * Wd;
+    const T0 = +svg.dataset.t0, T1 = +svg.dataset.t1;
+    const ML = +svg.dataset.ml, MR = +svg.dataset.mr, HALF = +svg.dataset.half;
+    const CAP = 1 + T1 / (0 - T0);   // bars overshoot the centre slightly after the light
     const frames = [...strip.querySelectorAll("figure[data-ms]")]
       .map((fig) => ({ ms: +fig.dataset.ms, img: fig.querySelector("img"), fig }))
       .sort((a, b) => a.ms - b.ms);
@@ -286,7 +306,6 @@ ${rows.map(touchSection).join("\n")}
     const dots = [...svg.querySelectorAll("[data-ms]")];
     const progL = svg.querySelector(".prog-l"), progR = svg.querySelector(".prog-r");
     const tipL = svg.querySelector(".tip-l"), tipR = svg.querySelector(".tip-r");
-    const ph = svg.querySelector(".ph");
     const pp = sec.querySelector(".pp"), scrub = sec.querySelector(".scrub");
     const tro = sec.querySelector(".tro"), spd = sec.querySelector(".spd");
     let t = T0, raf = null, lastTs = null, playedOnce = false;
@@ -296,10 +315,10 @@ ${rows.map(touchSection).join("\n")}
     function setT(nt) {
       t = Math.max(T0, Math.min(T1, nt));
       svg.classList.add("playing");
-      const x = xOf(t);
-      progL.setAttribute("x2", x); progR.setAttribute("x2", x);
-      tipL.setAttribute("cx", x);  tipR.setAttribute("cx", x);
-      ph.setAttribute("x1", x);    ph.setAttribute("x2", x);
+      const prg = Math.min(CAP, Math.max(0, (t - T0) / (0 - T0)));
+      const xl = ML + HALF * prg, xr = MR - HALF * prg;
+      progL.setAttribute("x2", xl); tipL.setAttribute("cx", xl);
+      progR.setAttribute("x1", xr); tipR.setAttribute("cx", xr);
       for (const d of dots) d.classList.toggle("on", t >= +d.dataset.ms);
       svg.classList.toggle("lit", t >= 0);
       let cur = frames[0];
@@ -315,6 +334,7 @@ ${rows.map(touchSection).join("\n")}
       if (pp) pp.innerHTML = "&#9654; Play";
     }
     function play() {
+      setActive(P);
       if (raf) { stop(); return; }
       if (t >= T1 - 1) setT(T0);
       if (pp) pp.innerHTML = "&#10074;&#10074; Pause";
@@ -328,13 +348,53 @@ ${rows.map(touchSection).join("\n")}
       };
       raf = requestAnimationFrame(step);
     }
+    // Frame-by-frame: jump to the previous/next extracted frame's offset.
+    function stepFrame(dir) {
+      setActive(P);
+      stop();
+      if (!frames.length) return;
+      let i = 0;
+      for (let k = 0; k < frames.length; k++) if (frames[k].ms <= t) i = k;
+      if (dir > 0) i = Math.min(frames.length - 1, i + 1);
+      else if (t <= frames[i].ms + 0.5) i = Math.max(0, i - 1);   // mid-gap snaps back first
+      setT(frames[i].ms);
+    }
+    const P = { sec, play, stepFrame };
+    players.push(P);
+
     if (pp) pp.addEventListener("click", play);
-    if (scrub) scrub.addEventListener("input", () => { stop(); setT(+scrub.value); });
-    for (const f of frames) f.fig.addEventListener("click", () => { stop(); setT(f.ms); });
+    const bPrev = sec.querySelector(".sprev"), bNext = sec.querySelector(".snext");
+    if (bPrev) bPrev.addEventListener("click", () => stepFrame(-1));
+    if (bNext) bNext.addEventListener("click", () => stepFrame(1));
+    if (scrub) scrub.addEventListener("input", () => { setActive(P); stop(); setT(+scrub.value); });
+    for (const f of frames) f.fig.addEventListener("click", () => { setActive(P); stop(); setT(f.ms); });
+    sec.addEventListener("pointerdown", () => setActive(P));
     new IntersectionObserver((entries, obs) => {
       for (const e of entries) if (e.isIntersecting && !playedOnce) { playedOnce = true; play(); obs.disconnect(); }
     }, { threshold: 0.35 }).observe(sec);
   }
+
+  // Keyboard: space toggles play/pause, arrows step frame by frame — on the active
+  // touch (last touched/played), falling back to the one nearest the viewport centre.
+  function nearest() {
+    let best = null, bd = Infinity;
+    for (const pl of players) {
+      const r = pl.sec.getBoundingClientRect();
+      const d = Math.abs(r.top + r.height / 2 - innerHeight / 2);
+      if (d < bd) { bd = d; best = pl; }
+    }
+    if (best) setActive(best);
+    return best;
+  }
+  document.addEventListener("keydown", (e) => {
+    const tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "select" || tag === "button" || tag === "textarea") return;
+    const pl = active ?? nearest();
+    if (!pl) return;
+    if (e.code === "Space") { e.preventDefault(); pl.play(); }
+    else if (e.code === "ArrowRight") { e.preventDefault(); pl.stepFrame(1); }
+    else if (e.code === "ArrowLeft") { e.preventDefault(); pl.stepFrame(-1); }
+  });
 })();
 </script>
 </body></html>`;
