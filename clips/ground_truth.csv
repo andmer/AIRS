@@ -56,3 +56,29 @@ y12ms23,left,1,single light left,7-13 to 8-13 detector green was pan artifact; r
 y12ms24,right,2,two lights ref right,8-13 to 8-14
 y12ms25,left,1,single light left,8-14 to 9-14
 y12ms26,right,1,single light right,9-14 to 9-15 GU wins 15-9
+y14ms01,left,1,single light left,hit on alternate camera ~316; red lamp verified full-frame at 317.8 after cut back; detector missed live onset
+y14ms02,left,2,two lights ref left,hit on alternate camera ~330.4; both lamps verified full-frame at 332.1
+y14ms03,left,1,single light left,
+y14ms04,left,1,single light left,detector green at 354.95 was junk; red only verified at 358.2
+y14ms05,right,1,single light right,green only verified full-frame at 374.5; prior run sidecar wrongly recorded both
+y14ms06,left,1,single light left,truncated 0.14s detection; red verified full-frame at 387.75
+y14ms07,right,2,two lights ref right,
+y14ms08,right,1,single light right,
+y14ms09,left,1,single light left,camera pan faked green (gap 0.33s); red only verified at 429.5
+y14ms10,left,1,single light left,
+y14ms11,right,3,award right no lamps on broadcast,scoreboard off-frame during entire phrase; hit visible on alternate camera at 453.4; award right per 7-3 to 7-4; lamp state unknowable
+y14ms12,right,2,two lights ref right,
+y14ms13,right,2,two lights ref right,lamp gap 0.17s; both verified full-frame at 475.4
+y14ms14,left,2,two lights ref left,
+y14ms15,right,2,two lights ref right,lamps lit mid-pan; red first visible 569.3 green 571.3; both verified at 571.4; prior run note about no-lamp award was wrong
+y14ms16,right,2,two lights ref right,
+y14ms17,right,1,single light right,hit ~594.9 during pan; green first visible 595.1; detector event 593.66 was banner junk
+y14ms18,right,1,single light right,
+y14ms19,left,2,two lights ref left,
+y14ms20,right,1,single light right,green only verified full-frame at 629.8
+y14ms21,right,2,two lights ref right,
+y14ms22,right,2,two lights ref right,
+y14ms23,right,3,two lights ref right after video review,review replays at 686 and 691 dropped as junk
+y14ms24,left,2,two lights ref left,
+y14ms25,left,2,two lights ref left,detector event 730.73 was pre-phrase junk; both lamps verified at 732.6
+y14ms26,right,1,single light right,final point 11-15; green lamp genuine verified at 750.3; aborted phrase ~745 preceded it; prior run wrongly excluded this point as lampless
