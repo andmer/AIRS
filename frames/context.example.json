@@ -1,0 +1,4 @@
+{
+  "lights": { "left": true, "right": true },
+  "timeline": "Optional plain-text derived measurements from a future CV layer, e.g.\n-800ms left elbow angle 95deg, gap 3.1m\n-440ms left elbow angle 150deg, gap 2.2m\nWhen present, the perception prompt treats this as primary evidence."
+}

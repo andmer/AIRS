@@ -1,0 +1,15 @@
+{
+  "name": "sabre-probe",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "probe": "node scripts/probe.mjs",
+    "score": "node scripts/score.mjs",
+    "test": "node tests/run-tests.mjs",
+    "test:golden": "node tests/run-tests.mjs --golden"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.65.0"
+  }
+}

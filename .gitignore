@@ -1,0 +1,20 @@
+node_modules/
+.DS_Store
+.env
+
+# Media inputs — too large for git; keep locally
+videos/
+clips/*.mp4
+
+# Extracted frames + per-touch sidecars — regenerable from videos + clips/*.csv
+# (lamp states are also recorded in ground_truth.csv's action column)
+frames/*
+!frames/context.example.json
+
+# Reviews and final renders are tracked as proof-of-concept deliverables;
+# only the per-touch encode intermediates are excluded.
+renders/segments/
+
+# Run records (results/*.jsonl) stay tracked — they ARE the experiment.
+# The per-touch subagent intermediates are folded into the jsonl already.
+results/interactive/

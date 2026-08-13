@@ -1,0 +1,16 @@
+touch_id,call,tier,action,notes
+t001,left,1,simple attack arrives,clean lunge no defence
+t002,right,1,parry riposte,parry 5 direct riposte
+t003,left,1,counterattack late,right counters into completed attack
+t004,right,1,point in line,line established before attack
+t005,left,2,beat attack,left beats blade then attacks
+t006,right,2,attack short then riposte,left falls short
+t007,left,2,remise beats slow riposte,riposte indirect and delayed
+t008,right,2,attack on preparation,left advancing arm bent
+t009,simultaneous,2,both attack together,no touch
+t010,left,3,attack in preparation contested tempo,referees split
+t011,right,3,false attack draws counter,left never threatened
+t012,left,3,hand arrives foot lands,arm and lunge within 40ms
+t013,right,3,marching attack with hesitation,continuity broken
+t014,left,3,parry or brush,blade contact ambiguous
+t015,simultaneous,3,near simultaneous arrival,both inside lockout
