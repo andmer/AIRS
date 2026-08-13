@@ -62,14 +62,15 @@ function textOf(msg, label) {
 function loadFrames(touchId) {
   const dir = join("frames", touchId);
   if (!existsSync(dir)) throw new Error(`no frames dir for ${touchId} (run extract-frames.sh)`);
-  return readdirSync(dir)
+  const files = readdirSync(dir)
     .filter((f) => /ms\.jpg$/.test(f))
     .map((f) => ({ file: f, offset: parseInt(f.replace(/ms\.jpg$/, ""), 10) }))
-    .sort((a, b) => a.offset - b.offset)
-    .map(({ file, offset }) => ({
-      offset,
-      b64: readFileSync(join(dir, file)).toString("base64"),
-    }));
+    .sort((a, b) => a.offset - b.offset);
+  if (!files.length) throw new Error(`frames dir for ${touchId} contains no *ms.jpg files`);
+  return files.map(({ file, offset }) => ({
+    offset,
+    b64: readFileSync(join(dir, file)).toString("base64"),
+  }));
 }
 
 /** Optional per-touch context: human-recorded light state, and later the CV timeline. */
@@ -203,8 +204,11 @@ async function adjudicationPass(touchId, idx, perception) {
 
 function touchIds() {
   if (named.length) return named;
-  const rows = readFileSync("clips/ground_truth.csv", "utf8").trim().split("\n").slice(1);
-  return rows.filter(Boolean).map((r) => r.split(",")[0].trim());
+  return readFileSync("clips/ground_truth.csv", "utf8").trim().split("\n").slice(1)
+    .map((r) => r.trim())
+    .filter((r) => r && !r.startsWith("#"))
+    .map((r) => r.split(",")[0].trim())
+    .filter(Boolean);
 }
 
 const ids = touchIds();

@@ -51,10 +51,12 @@ changes for real time (RT).
 - **Interface**: video → list of `(touch_id, light_time_s, lamp_sides)`; persisted as
   `clips/touches.csv` + `frames/<id>/context.json`.
 - **Current**: `detect-lights.mjs` — chroma shift on the overhead lamp panels
-  (signalstats, calibrated crops), merged L/R events; orchestrator triages live vs
-  broadcast-replay visually and excludes cards/annulled events.
+  (signalstats, calibrated crops), merged L/R events with per-side onset gaps reported;
+  orchestrator triages live vs broadcast-replay visually and excludes cards/annulled.
 - **Limits**: calibrated per venue/stream framing; misses lights during camera cuts;
-  replay triage needs a vision pass.
+  replay triage needs a vision pass. Camera pans can drag broadcast graphics through a
+  lamp crop and fake a side — a reported gap >0.2s (lockout physics) is the tell, and
+  the protocol requires full-frame verification before recording "both lights".
 - **RT path**: replace pixel-watching with the **scoring box itself** — a hardware tap or
   photodiode/GPIO on the lamps gives millisecond-exact lockout events and sides, and
   eliminates replay/card ambiguity (no broadcast graphics exist on an owned feed).
@@ -148,19 +150,40 @@ tier 1 fails on clean perception or calibration is flat. Expected finding, not a
 
 | Layer | Failure mode | Check |
 |---|---|---|
-| Plumbing (L1 parse, L5 semantics, assembly) | code regression | `npm test`: hermetic stub pipeline, golden scorer numbers, assembler prefix filter |
-| Annotations (L2) | lamp/scoreboard misread | `npm test` invariants: single-light call = lit side; sim ⇒ both lamps; manifest/gt/context 1:1 |
-| Lamp detection (L1) | calibration drift | `npm run test:golden`: byte-exact JMS reproduction |
+| Plumbing (L1 parse, L5 semantics, assembly) | code regression | `npm test`: hermetic stub pipeline, golden scorer numbers, assembler prefix filter + contract checks |
+| Annotations (L2) | lamp/scoreboard misread | `npm test` invariants: gt action text consistent with call (tracked data, runs on fresh clones); sidecar lamp checks additionally where sidecars exist locally |
+| Lamp detection (L1) | calibration drift | `npm run test:golden`: byte-exact JMS reproduction (skips gracefully without the local video) |
+| Model contracts (L3/L4 output shape) | schema/constraint drift | assembler attaches `contract_violations` per row; scorer surfaces them plus unbucketed-confidence and attribution-degeneracy warnings |
 | Model judgment (L3/L4) | not unit-testable | the probe is the eval; regression = frozen golden touch set re-runs; RT = rolling agreement monitoring |
 
 ## 6. Results to date
 
 **JMS.mp4** (Junior Men's Sabre, Summer Nationals 2026, Primus def. Lim 15–14; 31
-analyzable touches; 2 card points + 1 annulled light excluded; interactive mode):
-single-light **14/14 (100%)**; two-light priority **3/11 (27%)**; **9/9 disagreements
-PERCEPTION, 0 JUDGMENT**; 5/9 misses named the referee's call as the alternate; 3
-abstentions, all on degraded footage; calibration real (0.7–0.9 band → 93%, 0.4–0.7 →
-38%). Share artifact:
+analyzable touches; 2 card points + 1 annulled light excluded; interactive mode; numbers
+below are from the audited re-run after two lamp annotations were corrected — see the
+integrity note):
+
+- Overall agreement with the referee: **20/28 decided (71%)**, 3 abstentions (all on
+  degraded footage, working as designed)
+- Single-light touches: **15/15 (100%)** decided (1 abstained)
+- Two-light phrases: **4/11 decided (36%)** — awarded two-light 4/7 (57%), simultaneous
+  0/4, 2 abstained. Uncertain-lamp touches (broadcast cut/pan): 1 of 2 correct.
+- **8/8 disagreements tagged PERCEPTION, 0 JUDGMENT** — with the required caveat that
+  this run contained **zero good-quality perception rows** (30 partial / 1 poor), so
+  JUDGMENT attribution was unreachable and the "rules engine holds" claim rests on the
+  disagreement *content* (every decisive uncertainty is a visual question), not on the
+  tag statistics alone. The scorer now prints an ATTRIBUTION DEGENERATE warning whenever
+  this condition holds.
+- 4/8 misses named the referee's call as their alternate reading
+- Calibration: 0.7–0.9 band → 100% correct (n=13); 0.4–0.7 band → 43% (n=14)
+
+**Annotation-integrity note (2026-08-13 audit):** lockout physics (two lamps of one
+touch cannot light >0.2s apart) exposed two lamp annotations faked by camera pans
+dragging broadcast graphics through the detector's crops. m17 was single-left (not
+both) — the wrong ground data had caused that miss, and correcting it flipped the call;
+m05's left lamp is unknowable (broadcast cut). The detector now reports per-side onset
+gaps, and the annotation protocol requires full-frame lamp verification for any gap
+>0.2s. Share artifact (audited re-run edition):
 https://claude.ai/code/artifact/fa395543-1ea5-4d5b-9c61-8e844eb1911f
 
 ## 7. Non-goals

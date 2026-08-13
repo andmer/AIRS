@@ -62,7 +62,7 @@ function markersFor(fencer) {
   if (arm.extension_start_ms != null) m.push({ ms: arm.extension_start_ms, label: "arm start" });
   if (arm.extension_full_ms != null) m.push({ ms: arm.extension_full_ms, label: "arm full" });
   for (const i of arm.interruptions ?? []) if (i.ms != null) m.push({ ms: i.ms, label: "arm interrupted" });
-  for (const e of fencer?.feet?.events ?? []) if (e.ms != null) m.push({ ms: e.ms, label: e.type.replace(/_/g, " ") });
+  for (const e of fencer?.feet?.events ?? []) if (e.ms != null) m.push({ ms: e.ms, label: String(e.type ?? "?").replace(/_/g, " ") });
   if (fencer?.hit?.landed && fencer.hit.ms != null) m.push({ ms: fencer.hit.ms, label: "hit" });
   if (fencer?.line?.established && fencer.line.established_ms != null) m.push({ ms: fencer.line.established_ms, label: "line" });
   return m.sort((a, b) => a.ms - b.ms);
@@ -119,7 +119,7 @@ function perceptionPanel(p) {
   if (!p) return "";
   const reasons = (p.quality_reasons ?? []).map((r) => `<li>${esc(r)}</li>`).join("");
   const events = (p.events ?? []).map((e) =>
-    `<li>${fmtMs(e.ms ?? 0)} <b>${esc(e.actor)}</b>: ${esc(e.action)} <span class="dim">(conf ${esc(e.confidence)}, basis: ${esc(e.basis)})</span></li>`
+    `<li>${e.ms != null ? fmtMs(e.ms) : "t=?"} <b>${esc(e.actor)}</b>: ${esc(e.action)} <span class="dim">(conf ${esc(e.confidence)}, basis: ${esc(e.basis)})</span></li>`
   ).join("");
   return `<div class="panel">
     <h3>Perception <span class="q q-${esc(p.perception_quality)}">${esc(p.perception_quality)}</span></h3>
@@ -163,16 +163,19 @@ function adjudicationPanel(a, gt) {
 function touchSection(r) {
   const gt = truth.get(r.touch_id);
   const head = `${esc(r.touch_id)}${gt ? ` — tier ${esc(gt.tier)} — ${esc(gt.action)}` : ""}`;
-  if (r.error) {
-    return `<section class="touch"><h2>${head}</h2><p class="badge miss">RUN ERROR: ${esc(r.error)}</p></section>`;
+  const errBanner = r.error ? `<p class="badge miss">RUN ERROR: ${esc(r.error)}</p>` : "";
+  if (r.error && !r.perception) {
+    return `<section class="touch"><h2>${head}</h2>${errBanner}</section>`;
   }
   const p = r.perception;
+  const q = p?.perception_quality;
   const kind =
     r.adjudication && gt && r.adjudication.call !== "no_call" && r.adjudication.call !== gt.call
-      ? `<span class="badge kind">${p?.perception_quality === "good" ? "JUDGMENT failure" : "PERCEPTION failure"}</span>`
+      ? `<span class="badge kind">${q === "good" ? "JUDGMENT failure" : (q === "partial" || q === "poor") ? "PERCEPTION failure" : "failure (quality missing)"}</span>`
       : "";
   return `<section class="touch">
     <h2>${head} ${kind}</h2>
+    ${errBanner}
     ${filmstrip(r.touch_id, p)}
     ${timelineSvg(p)}
     <div class="panels">${perceptionPanel(p)}${adjudicationPanel(r.adjudication, gt)}</div>
@@ -181,7 +184,7 @@ function touchSection(r) {
 
 // --------------------------------------------------------------------------- page
 
-const title = basename(runPath).replace(/\.jsonl$/, "") + (named.length ? `-${named.join("-")}` : "");
+const title = (basename(runPath).replace(/\.jsonl$/, "") + (named.length ? `-${named.join("-")}` : "")).replace(/[^\w.-]/g, "_");
 const html = `<!doctype html><html><head><meta charset="utf-8">
 <title>sabre probe review — ${esc(title)}</title>
 <style>

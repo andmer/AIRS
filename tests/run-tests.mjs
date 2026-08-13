@@ -24,8 +24,9 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, cpSync, readdirSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 
-const ROOT = new URL("..", import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const GOLDEN = process.argv.includes("--golden");
 let failures = 0;
 
@@ -41,6 +42,7 @@ function run(cmd, args, opts = {}) {
 // ---------------------------------------------------------------- 1. stub pipeline
 console.log("stub pipeline (hermetic sandbox):");
 const sandbox = mkdtempSync(join(tmpdir(), "airs-test-"));
+try {
 cpSync(join(ROOT, "scripts"), join(sandbox, "scripts"), { recursive: true });
 cpSync(join(ROOT, "prompts"), join(sandbox, "prompts"), { recursive: true });
 mkdirSync(join(sandbox, "clips"), { recursive: true });
@@ -79,31 +81,53 @@ check("prefix 'aa' assembles exactly the aa touches", asmRows.length === 1 && as
 // ---------------------------------------------------------------- 3. annotation invariants (real repo data)
 console.log("annotation invariants (clips/ + frames/ in this repo):");
 const touchRows = readFileSync(join(ROOT, "clips/touches.csv"), "utf8").trim().split("\n")
-  .filter((l) => l.trim() && !l.startsWith("#") && !l.startsWith("touch_id"))
+  .map((l) => l.trim())
+  .filter((l) => l && !l.startsWith("#") && !l.startsWith("touch_id"))
   .map((l) => l.split(",").map((s) => s.trim()));
-const gt = new Map(readFileSync(join(ROOT, "clips/ground_truth.csv"), "utf8").trim().split("\n").slice(1)
-  .filter((l) => l.trim()).map((l) => { const [id, call] = l.split(","); return [id.trim(), call.trim()]; }));
+const gtRows = readFileSync(join(ROOT, "clips/ground_truth.csv"), "utf8").trim().split("\n").slice(1)
+  .map((l) => l.trim()).filter((l) => l && !l.startsWith("#"))
+  .map((l) => l.split(",").map((s) => s.trim()));
+const gt = new Map(gtRows.map((r) => [r[0], { call: r[1], action: r[3] ?? "" }]));
 
 const ids = touchRows.map((r) => r[0]);
 check("touch ids unique", new Set(ids).size === ids.length);
 check("every touch has a ground-truth row", ids.every((id) => gt.has(id)), ids.filter((id) => !gt.has(id)).join(","));
-check("every touch has a light-state sidecar", ids.every((id) => existsSync(join(ROOT, `frames/${id}/context.json`))));
 
-let lightViolations = [];
-for (const id of ids) {
-  const lights = JSON.parse(readFileSync(join(ROOT, `frames/${id}/context.json`), "utf8")).lights ?? {};
-  const call = gt.get(id);
-  if (lights.left === true && lights.right === false && call !== "left") lightViolations.push(`${id}: left-only lamp but call=${call}`);
-  if (lights.right === true && lights.left === false && call !== "right") lightViolations.push(`${id}: right-only lamp but call=${call}`);
-  if (call === "simultaneous" && !(lights.left === true && lights.right === true)) lightViolations.push(`${id}: simultaneous without both lamps`);
+// Tracked-data invariant (works on a fresh clone): the gt action text encodes lamp state.
+let actionViolations = [];
+for (const [id, { call, action }] of gt) {
+  if (action.startsWith("single light left") && call !== "left") actionViolations.push(`${id}: "${action}" but call=${call}`);
+  if (action.startsWith("single light right") && call !== "right") actionViolations.push(`${id}: "${action}" but call=${call}`);
+  if (action.startsWith("both lights no award") && call !== "simultaneous") actionViolations.push(`${id}: "${action}" but call=${call}`);
 }
-check("single-light touches awarded to the lit side; sims have both lamps", lightViolations.length === 0, lightViolations.join("; "));
+check("gt action text consistent with call (single light => lit side, no-award => simultaneous)", actionViolations.length === 0, actionViolations.join("; "));
+
+// Local sidecar invariants (sidecars are untracked; validate only where present).
+const withSidecar = ids.filter((id) => existsSync(join(ROOT, `frames/${id}/context.json`)));
+if (withSidecar.length === 0) {
+  console.log("  --  light-state sidecars not present locally (untracked) — sidecar checks skipped");
+} else {
+  check(`sidecars present for all touches (${withSidecar.length}/${ids.length} found)`, withSidecar.length === ids.length,
+    ids.filter((id) => !withSidecar.includes(id)).join(","));
+  let lightViolations = [];
+  for (const id of withSidecar) {
+    let lights;
+    try {
+      lights = JSON.parse(readFileSync(join(ROOT, `frames/${id}/context.json`), "utf8")).lights ?? {};
+    } catch (e) { lightViolations.push(`${id}: unreadable context.json (${e.message})`); continue; }
+    const call = gt.get(id)?.call;
+    if (lights.left === true && lights.right === false && call !== "left") lightViolations.push(`${id}: left-only lamp but call=${call}`);
+    if (lights.right === true && lights.left === false && call !== "right") lightViolations.push(`${id}: right-only lamp but call=${call}`);
+    if (call === "simultaneous" && !(lights.left === true && lights.right === true)) lightViolations.push(`${id}: simultaneous without both lamps`);
+  }
+  check("sidecar lamps consistent with calls (single-light => lit side; sims => both)", lightViolations.length === 0, lightViolations.join("; "));
+}
 
 // ---------------------------------------------------------------- 4. golden lamp detection (optional, ~1 min)
 if (GOLDEN) {
   console.log("golden lamp detection (videos/JMS.mp4):");
   if (!existsSync(join(ROOT, "videos/JMS.mp4"))) {
-    check("videos/JMS.mp4 present", false, "golden test needs the source video locally");
+    console.log("  --  videos/JMS.mp4 not present locally (untracked media) — golden check skipped");
   } else {
     const detected = run("node", ["scripts/detect-lights.mjs", "videos/JMS.mp4"], { cwd: ROOT }).trim();
     const golden = readFileSync(join(ROOT, "tests/golden/jms-lights.txt"), "utf8").trim();
@@ -114,6 +138,8 @@ if (GOLDEN) {
   console.log("golden lamp detection: skipped (npm run test:golden)");
 }
 
-rmSync(sandbox, { recursive: true, force: true });
+} finally {
+  rmSync(sandbox, { recursive: true, force: true });
+}
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nall tests passed");
 process.exit(failures ? 1 : 0);

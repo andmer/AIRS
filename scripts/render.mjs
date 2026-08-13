@@ -41,7 +41,9 @@ for (const line of readFileSync("clips/touches.csv", "utf8").trim().split("\n"))
   const l = line.trim();
   if (!l || l.startsWith("#") || l.startsWith("touch_id")) continue;
   const [id, clip, light] = l.split(",").map((s) => s.trim());
-  touches.set(id, { clip, light: parseFloat(light) });
+  const t = parseFloat(light);
+  if (!Number.isFinite(t)) { console.warn(`skip malformed touches.csv row: ${l}`); continue; }
+  touches.set(id, { clip, light: t });
 }
 
 const truth = new Map();
@@ -68,17 +70,19 @@ function bannerLines(r, gt, replay) {
     L.push("AIRS: perception only (pass 1) - no call made");
     return L;
   }
+  const gtCall = String(gt?.call ?? "?").toUpperCase();
   if (a.call === "no_call") {
-    L.push(`AIRS: NO CALL @ ${a.confidence} - abstained (${a.rule_cited})`);
-    if (gt) L.push(`REF: ${gt.call.toUpperCase()}`);
+    L.push(`AIRS: NO CALL @ ${a.confidence ?? "?"} - abstained (${a.rule_cited ?? "?"})`);
+    if (gt) L.push(`REF: ${gtCall}`);
   } else {
-    L.push(`AIRS: ${a.call.toUpperCase()} @ ${a.confidence} - ${a.rule_cited}`);
+    L.push(`AIRS: ${String(a.call ?? "?").toUpperCase()} @ ${a.confidence ?? "?"} - ${a.rule_cited ?? "?"}`);
     if (gt) {
       const hit = a.call === gt.call;
-      const kind = r.perception?.perception_quality === "good" ? "JUDGMENT" : "PERCEPTION";
+      const q = r.perception?.perception_quality;
+      const kind = q === "good" ? "JUDGMENT" : (q === "partial" || q === "poor") ? "PERCEPTION" : "UNATTRIBUTED";
       L.push(hit
-        ? `REF: ${gt.call.toUpperCase()} - AGREE`
-        : `REF: ${gt.call.toUpperCase()} - DISAGREE (${kind} failure)`);
+        ? `REF: ${gtCall} - AGREE`
+        : `REF: ${gtCall} - DISAGREE (${kind} failure)`);
       const alt = a.alternate_reading;
       if (!hit && alt && alt.call !== "none") L.push(`alt reading: ${alt.call} (${alt.plausibility})`);
     }
@@ -96,7 +100,7 @@ function ffmpeg(args) {
 }
 
 const ENC = ["-an", "-r", "30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"];
-const title = basename(runPath).replace(/\.jsonl$/, "") + (named.length ? `-${named.join("-")}` : "");
+const title = (basename(runPath).replace(/\.jsonl$/, "") + (named.length ? `-${named.join("-")}` : "")).replace(/[^\w.-]/g, "_");
 const segDir = join("renders", "segments");
 mkdirSync(segDir, { recursive: true });
 

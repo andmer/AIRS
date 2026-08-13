@@ -32,7 +32,9 @@ const lines = readFileSync(runPath, "utf8").trim().split("\n").map((l) => JSON.p
 const meta = lines.find((l) => l.meta)?.meta;
 const rows = lines.filter((l) => !l.meta);
 
-const stats = { decided: 0, correct: 0, errors: 0, byTier: {} };
+const stats = { decided: 0, correct: 0, errors: 0, byTier: {}, noGt: 0, unbucketed: 0, hardCaseHighConf: 0 };
+const qualityCounts = { good: 0, partial: 0, poor: 0, other: 0 };
+const contractViolations = [];
 const abstentions = { n: 0, byQuality: {}, onGoodPerception: [] };
 const buckets = [
   { lo: 0.9, hi: 1.01, n: 0, correct: 0, label: "0.9+" },
@@ -46,14 +48,16 @@ let altRescues = 0;
 
 for (const r of rows) {
   const gt = truth.get(r.touch_id);
-  if (!gt) continue;
+  if (!gt) { stats.noGt++; continue; }
   if (r.error) { stats.errors++; continue; }
   const a = r.adjudication;
   if (!a) continue; // pass1-only rows
+  if (r.contract_violations?.length) contractViolations.push({ id: r.touch_id, v: r.contract_violations });
 
   const tier = gt.tier || "?";
   stats.byTier[tier] ??= { n: 0, correct: 0, abstained: 0 };
   const quality = r.perception?.perception_quality ?? "?";
+  qualityCounts[quality] != null ? qualityCounts[quality]++ : qualityCounts.other++;
 
   if (a.call === "no_call") {
     abstentions.n++;
@@ -71,7 +75,8 @@ for (const r of rows) {
   if (hit) { stats.correct++; stats.byTier[tier].correct++; }
 
   const b = buckets.find((x) => a.confidence >= x.lo && a.confidence < x.hi);
-  if (b) { b.n++; if (hit) b.correct++; }
+  if (b) { b.n++; if (hit) b.correct++; } else stats.unbucketed++;
+  if ((a.hard_case_flags ?? []).length && a.confidence > 0.7) stats.hardCaseHighConf++;
 
   // On a contested touch (tier 2/3), "no alternate reading exists" is itself a failure.
   if ((tier === "2" || tier === "3") && a.alternate_reading?.call === "none") {
@@ -105,6 +110,12 @@ if (meta) {
   console.log(`models ${meta.perception_model} → ${meta.adjudication_model}   prompts ${meta.prompts_sha256}${meta.stub ? "   [STUB RUN — not real results]" : ""}`);
 }
 console.log(`decided ${stats.decided}   correct ${stats.correct} (${pct(stats.correct, stats.decided)})   abstentions ${abstentions.n}   errors ${stats.errors}`);
+if (stats.noGt) console.log(`!! ${stats.noGt} result row(s) had no ground-truth entry and were DROPPED — id drift between the run and clips/ground_truth.csv?`);
+if (stats.unbucketed) console.log(`!! ${stats.unbucketed} decided call(s) had missing/invalid confidence — counted in accuracy but ABSENT from the calibration table`);
+if (contractViolations.length) {
+  console.log(`!! CONTRACT VIOLATIONS in ${contractViolations.length} row(s):`);
+  for (const c of contractViolations) console.log(`   [${c.id}] ${c.v.join("; ")}`);
+}
 
 if (abstentions.n) {
   const q = abstentions.byQuality;
@@ -130,6 +141,13 @@ const topHeavy = buckets[0].n;
 if (stats.decided >= 5 && topHeavy / stats.decided > 0.9) {
   console.log(`  !! CALIBRATION FAILURE: ${pct(topHeavy, stats.decided)} of decided calls are above 0.9 — the confidence signal is noise.`);
 }
+if (stats.hardCaseHighConf) {
+  console.log(`  note: ${stats.hardCaseHighConf} hard-case-flagged call(s) above 0.7 confidence (the adjudication prompt calls that suspect)`);
+}
+console.log(`  perception quality across scored touches: good ${qualityCounts.good} / partial ${qualityCounts.partial} / poor ${qualityCounts.poor}`);
+if (qualityCounts.good === 0 && stats.decided > 0) {
+  console.log(`  !! ATTRIBUTION DEGENERATE: zero good-perception touches — every miss will tag PERCEPTION and JUDGMENT failures are unreachable in this run.`);
+}
 
 console.log(`\nAlternate-reading rescues: ${altRescues}/${disagreements.length}`);
 console.log("  (wrong primary call but the right answer was named as the alternate —");
@@ -144,7 +162,9 @@ if (altNoneContested.length) {
 
 console.log("\n--- DISAGREEMENTS: read these, not the percentage ---");
 for (const d of disagreements) {
-  const kind = d.perception === "poor" || d.perception === "partial" ? "PERCEPTION" : "JUDGMENT";
+  const kind = d.perception === "good" ? "JUDGMENT"
+    : (d.perception === "poor" || d.perception === "partial") ? "PERCEPTION"
+    : "UNATTRIBUTED (perception quality missing)";
   console.log(`\n[${d.id}] tier ${d.tier} — ${d.action}`);
   console.log(`  expected ${d.expected}, got ${d.got} @ ${d.conf}   likely failure: ${kind}`);
   if (d.altHit) console.log(`  (alternate reading had it right)`);

@@ -49,6 +49,12 @@ other pass's job.
 valid target while the opponent is still approaching. Report whether and when it existed;
 draw no conclusion about its effect.
 
+**The scoring lamps, score displays, and broadcast graphics are NOT evidence.** Do not
+read them, report them, or let them influence any field. The lamp state reaches the next
+pass separately as ground data; your job is the fencers and blades only. In particular,
+`hit.landed` must come from observing the blade arrive on the opponent — never from a
+lamp. If you cannot see the blade land, `landed` is `null`.
+
 Use `events` for grounding and spillover: anything observed that the typed fields cannot
 express, plus per-claim `basis` pointing at the frame offset or timeline fact that
 supports it.

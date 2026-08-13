@@ -6,8 +6,9 @@ node_modules/
 videos/
 clips/*.mp4
 
-# Extracted frames + per-touch sidecars — regenerable from videos + clips/*.csv
-# (lamp states are also recorded in ground_truth.csv's action column)
+# Extracted frames (regenerable from videos + touches.csv) and lamp sidecars.
+# NOTE: sidecars are HAND-RECORDED, not regenerable — they stay local by choice;
+# the tracked record of lamp state is ground_truth.csv's action + notes columns.
 frames/*
 !frames/context.example.json
 

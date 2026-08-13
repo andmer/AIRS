@@ -21,9 +21,32 @@ const PROMPTS_HASH = createHash("sha256").update(RULES + PERCEPTION + ADJUDICATI
 
 const prefix = process.argv[2] ?? "";
 const ids = readFileSync("clips/touches.csv", "utf8").trim().split("\n")
-  .filter((l) => l.trim() && !l.startsWith("#") && !l.startsWith("touch_id"))
+  .map((l) => l.trim())
+  .filter((l) => l && !l.startsWith("#") && !l.startsWith("touch_id"))
   .map((l) => l.split(",")[0].trim())
-  .filter((id) => id.startsWith(prefix));
+  .filter((id) => id && id.startsWith(prefix));
+
+if (!ids.length) {
+  console.error(`no touch ids in clips/touches.csv${prefix ? ` matching prefix "${prefix}"` : ""} — nothing to assemble`);
+  process.exit(1);
+}
+
+// Contract checks from the prompt schemas; violations ride on the row for score.mjs to surface.
+const CALLS = ["left", "right", "simultaneous", "no_call"];
+const QUALITIES = ["good", "partial", "poor"];
+function contractCheck(perception, adjudication) {
+  const v = [];
+  if (!QUALITIES.includes(perception?.perception_quality)) v.push(`perception_quality invalid: ${perception?.perception_quality}`);
+  if (!CALLS.includes(adjudication?.call)) v.push(`call invalid: ${adjudication?.call}`);
+  const c = adjudication?.confidence;
+  if (typeof c !== "number" || c < 0 || c > 1) v.push(`confidence invalid: ${c}`);
+  if (adjudication?.call === "no_call") {
+    if (!(typeof c === "number" && c <= 0.3)) v.push(`no_call at confidence ${c} (must be <= 0.3)`);
+    if (adjudication?.rule_cited !== "insufficient_perception") v.push(`no_call with rule_cited ${adjudication?.rule_cited}`);
+  }
+  if (adjudication?.alternate_reading?.call === adjudication?.call) v.push("alternate_reading.call equals call");
+  return v;
+}
 
 const out = [{
   meta: {
@@ -49,7 +72,10 @@ for (const id of ids) {
       continue;
     }
     const adjudication = JSON.parse(readFileSync(p2, "utf8"));
-    out.push({ touch_id: id, frames: 20, perception, adjudication });
+    const row = { touch_id: id, frames: 20, perception, adjudication };
+    const violations = contractCheck(perception, adjudication);
+    if (violations.length) row.contract_violations = violations;
+    out.push(row);
     ok++;
   } catch (err) {
     out.push({ touch_id: id, error: String(err.message ?? err) });

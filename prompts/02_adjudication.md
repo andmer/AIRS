@@ -9,7 +9,11 @@ entire point of the split.
 ## Input
 
 A JSON perception record from Pass 1, plus the light state (which lights showed, recorded
-by a human from the scoring box — treat it as ground data).
+by a human from the scoring box — treat it as ground data). The recorded light state is
+**authoritative**: if the perception record happens to mention lamps or score displays,
+ignore those mentions entirely — perception is never a source of lamp information. A
+light state of `null` means that lamp's state was not recorded — treat it as unknown,
+not as off.
 
 ## How to reason
 
@@ -33,7 +37,9 @@ defeats the architecture.
 
 When the phrase matches one of the known-hard cases in the reference, put its slug in
 `hard_case_flags` and treat confidence above 0.7 as suspect for that touch — these are
-the cases certified referees split on.
+the cases certified referees split on. Flag a hard case only when it is genuinely
+load-bearing for this call — not merely because blade contact or close timing exists
+somewhere in the phrase. A flag on most touches carries no information.
 
 ## Output
 
@@ -66,7 +72,7 @@ Hard constraints on the output:
 
 - `alternate_reading.call` must differ from `call`. `"none"` is legitimate only on
   genuinely one-sided touches — on a contested touch it is a calibration failure and is
-  scored as one. When `call` is `"none"`, `plausibility` is 0.
+  scored as one. When `alternate_reading.call` is `"none"`, its `plausibility` is 0.
 - `call: "no_call"` requires `rule_cited: "insufficient_perception"` and
   `confidence <= 0.3`.
 
@@ -75,11 +81,12 @@ Hard constraints on the output:
 `confidence` is a claim about how often you would be right, not how fluent your reasoning
 felt. Use the bands:
 
-- **0.9+** — clean single-light touch, uncontested initiation, arm-then-foot unambiguous.
-- **0.7–0.9** — clear to a referee but with a technically available counter-reading.
-- **0.4–0.7** — genuinely contested. Certified referees would split. `alternate_reading`
-  must be populated and substantive.
-- **below 0.4** — you are guessing. Prefer `no_call`, and any `no_call` must sit at 0.3
+- **0.90 and above** — clean single-light touch, uncontested initiation, arm-then-foot
+  unambiguous.
+- **0.70 to 0.89** — clear to a referee but with a technically available counter-reading.
+- **0.40 to 0.69** — genuinely contested. Certified referees would split.
+  `alternate_reading` must be populated and substantive.
+- **below 0.40** — you are guessing. Prefer `no_call`, and any `no_call` must sit at 0.3
   or lower.
 
 A run where 90% of touches come back above 0.9 is a calibration failure — that pattern

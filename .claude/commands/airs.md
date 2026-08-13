@@ -76,11 +76,22 @@ the broadcast replay a few seconds later usually shows which lamps lit — use i
 Tiers: single-light → 1; two-light → 2; video-reviewed/messy → 3 (your judgment, noted
 as non-referee judgment).
 
+**Lamp-gap sanity check (proven necessary on JMS):** two lamps of one touch cannot light
+more than ~0.2 s apart (120 ms lockout). If the detector's L and R onsets for one event
+are further apart than that, the camera panned a name banner or graphic through a lamp
+crop and one side is FAKE — extract a full frame mid-lamp-period and read the actual
+panels before recording "both lights". Replays are equally polluting: their red/green
+name banners can fake a lamp, so never take lamp sides from replay footage without a
+full-frame check.
+
 Write, per included touch:
 - `clips/touches.csv` row: `<id>,<video>,<onset>`
 - `clips/ground_truth.csv` row: `<id>,<call>,<tier>,<action>,<notes>` (action style:
-  "single light right" / "two lights ref left" / "both lights no award")
-- `frames/<id>/context.json`: `{ "lights": { "left": bool, "right": bool } }`
+  "single light right" / "two lights ref left" / "both lights no award"). Record lamp
+  uncertainty in the notes column — it is the tracked record of lamp state.
+- `frames/<id>/context.json`: exactly `{ "lights": { "left": bool|null, "right": bool|null } }`
+  where `null` = unknown/not recorded. NOTHING else goes in this file — no notes, no
+  outcome-adjacent text: its contents reach pass 2, so a stray comment can leak the answer.
 
 ## Phase 3 — extract frames
 
@@ -95,24 +106,32 @@ Prompt template (substitute <id>; keep verbatim otherwise). For touches with a k
 anomaly (camera pan, cut, uncertain anchor), append one factual sentence to step 2 —
 e.g. "NOTE: the camera pans during this phrase — report what is genuinely visible and
 degrade perception_quality honestly." Never hint at lights, calls, or expectations.
+If the touch has a CV timeline (context.json `timeline` field), paste its text into the
+prompt labeled "Derived timeline (primary evidence):" — the subagent still must not read
+the file itself.
 
 > Working directory: <project root>
 >
 > You are the PERCEPTION pass of a two-pass sabre adjudication probe. Follow these steps exactly:
 > 1. Read prompts/00_rules_preamble.md and prompts/01_perception.md. Follow the perception prompt's instructions and output schema exactly, including its forbidden-vocabulary rule.
-> 2. Read every file matching frames/<id>/*ms.jpg (there are 20). Each filename is that frame's offset in milliseconds relative to the scoring-box light: "-0320ms.jpg" = 320ms before the light, "+0060ms.jpg" = 60ms after. Study them in chronological order. LEFT/RIGHT = as seen in frame.
-> 3. Do NOT read any other file in the project. Only the two prompt files and the 20 frames of <id>.
+> 2. Read every file matching frames/<id>/*ms.jpg (20, unless the touch sits near the clip's start — trust the filenames). Each filename is that frame's offset in milliseconds relative to the scoring-box light: "-0320ms.jpg" = 320ms before the light, "+0060ms.jpg" = 60ms after. Study them in chronological order. LEFT/RIGHT = as seen in frame.
+> 3. Do NOT read any other file in the project. Only the two prompt files and the frames of <id>.
 > 4. Produce the perception JSON per the schema in 01_perception.md. Use the Write tool to save EXACTLY that JSON (nothing else) to results/interactive/p1-<id>.json, then end your reply with just: done <id>
 
 ## Phase 5 — adjudication subagents (model: opus, one per touch, after its p1 exists)
+
+Substitute <id> and <lights> — where <lights> is the lights object YOU paste inline from
+frames/<id>/context.json (e.g. `{"left": true, "right": false}`). The subagent must
+never read the sidecar itself; passing it inline keeps this identical to the API path
+(probe.mjs) and ensures nothing but the lights object can reach pass 2.
 
 > Working directory: <project root>
 >
 > You are the ADJUDICATION pass of a two-pass sabre refereeing probe. You never see video frames — only the perception record. Follow these steps exactly:
 > 1. Read prompts/00_rules_preamble.md and prompts/02_adjudication.md. Follow the adjudication prompt exactly, including its output schema, hard constraints, and calibration bands.
 > 2. Read results/interactive/p1-<id>.json — the perception record for touch <id>.
-> 3. Read frames/<id>/context.json — the human-recorded scoring-box light state (treat as ground data).
-> 4. Do NOT read any other file. You must not look at frames, anything in clips/, or any other results file.
+> 3. Light state (human-recorded ground data; null = unknown): <lights>
+> 4. Do NOT read any other file. You must not look at frames, context.json, anything in clips/, or any other results file.
 > 5. Apply sabre convention to the perception record and produce the adjudication JSON per the schema. Use the Write tool to save EXACTLY that JSON (nothing else) to results/interactive/p2-<id>.json, then end your reply with just: done <id>
 
 ## Phase 6 — outputs

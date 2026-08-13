@@ -5,12 +5,15 @@
  *
  *   node scripts/detect-lights.mjs videos/MATCH.mp4
  *
- * Prints one event per line: "<onset_s> <end_s> <L|R|L+R>". Pure ffmpeg + node —
- * no model calls. Used standalone or by airs-match.mjs.
+ * Prints one event per line: "<onset_s> <end_s> <L|R|L+R>", with " gap=<s>" appended on
+ * L+R events (the spread between the two sides' detected onsets). A gap much larger
+ * than the ~120ms sabre lockout means a camera pan dragged a graphic through a lamp
+ * crop and one side is likely FAKE — verify against full frames before trusting it.
+ * Pure ffmpeg + node — no model calls. Used standalone or by the /airs command.
  */
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -26,8 +29,12 @@ const LAMP_RIGHT = process.env.LAMP_RIGHT ?? "140:30:752:86"; // green when lit:
 const L_THRESH = parseFloat(process.env.LAMP_L_THRESH ?? "136");
 const R_THRESH = parseFloat(process.env.LAMP_R_THRESH ?? "124");
 
+const FFMPEG = process.env.FFMPEG
+  ?? (existsSync("/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg") ? "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg" : "ffmpeg");
+
 const work = mkdtempSync(join(tmpdir(), "airs-lamps-"));
-execFileSync("ffmpeg", [
+try {
+execFileSync(FFMPEG, [
   "-nostdin", "-loglevel", "error", "-i", video,
   "-filter_complex",
   `[0:v]split=2[a][b];[a]crop=${LAMP_LEFT},signalstats,metadata=print:key=lavfi.signalstats.VAVG:file=${work}/L.log[oa];` +
@@ -66,8 +73,18 @@ events.sort((a, b) => a.s - b.s);
 const merged = [];
 for (const ev of events) {
   const m = merged[merged.length - 1];
-  if (m && ev.s - m.s < 1.5) { m.sides.add(ev.side); m.e = Math.max(m.e, ev.e); }
-  else merged.push({ s: ev.s, e: ev.e, sides: new Set([ev.side]) });
+  if (m && ev.s - m.s < 1.5) {
+    if (m.onsets[ev.side] == null) m.onsets[ev.side] = ev.s;
+    m.e = Math.max(m.e, ev.e);
+  } else merged.push({ s: ev.s, e: ev.e, onsets: { [ev.side]: ev.s } });
 }
-for (const m of merged) console.log(`${m.s.toFixed(2)} ${m.e.toFixed(2)} ${[...m.sides].sort().join("+")}`);
-rmSync(work, { recursive: true, force: true });
+for (const m of merged) {
+  const sides = Object.keys(m.onsets).sort().join("+");
+  const gap = m.onsets.L != null && m.onsets.R != null
+    ? ` gap=${Math.abs(m.onsets.L - m.onsets.R).toFixed(2)}`
+    : "";
+  console.log(`${m.s.toFixed(2)} ${m.e.toFixed(2)} ${sides}${gap}`);
+}
+} finally {
+  rmSync(work, { recursive: true, force: true });
+}

@@ -1,11 +1,12 @@
 # Runbook: match mp4 → annotated scoring video
 
-**One-command path:** in a Claude Code session, `/airs videos/MATCH.mp4` runs this whole
-runbook via subagents on Claude Code usage (no API key) — see `.claude/commands/airs.md`.
-The manual steps below remain the reference for what the command does and for API runs.
+**One-command path:** in a Claude Code session, `/airs videos/MATCH.mp4` automates steps
+2–9 of this runbook via subagents on Claude Code usage (no API key), replacing manual
+scrubbing with detector-assisted annotation — see `.claude/commands/airs.md`. The manual
+steps below remain the reference for what the command does and for API runs.
 
 From a raw match recording to a reassembled video with the AIRS call burned into every
-touch. Times below assume a ~15-touch bout. Ground truth (the referee's actual calls)
+touch. Times below assume a 15–35 touch bout. Ground truth (the referee's actual calls)
 only ever feeds the post-hoc tools — the probe reads touch ids and nothing else.
 
 ## 0. One-time setup
@@ -21,26 +22,34 @@ brew install ffmpeg-full                 # needed by step 9 — plain ffmpeg has
 Optional smoke test of the whole pipeline without spending anything:
 `PROBE_STUB=1 node scripts/probe.mjs && node scripts/score.mjs results/run-<stamp>.jsonl`
 
-## 1. Re-encode the match with dense keyframes  (~minutes, once)
+## 1. (Optional) Re-encode with dense keyframes
 
-Seeks in the original are keyframe-approximate; every later step depends on
-frame-accurate timestamps. Do this first, use the dense file everywhere after:
+ffmpeg's input seeking (`-ss` before `-i`) is frame-accurate with re-encoded output, so
+extraction works directly on the original — the validated JMS run did exactly that. The
+dense re-encode matters for *player* scrubbing (HTML5/QuickTime seeks are
+keyframe-approximate) and as a fix if extracted frames ever look offset from their
+labels:
 
 ```bash
-ffmpeg -i match.mp4 -g 1 -c:v libx264 -crf 18 -an clips/match-dense.mp4
+ffmpeg -i videos/MATCH.mp4 -g 1 -c:v libx264 -crf 18 -an clips/match-dense.mp4
 ```
 
-## 2. Scrub the match and log every touch  (~1-2 min per touch)
+## 2. Find and log every touch  (~1-2 min per touch)
 
-Open `clips/match-dense.mp4` in a player with frame-stepping (mpv: `.` and `,` step
-frames, timestamp on screen; QuickTime: arrow keys when paused). For each touch:
+Fast path: `node scripts/detect-lights.mjs videos/MATCH.mp4` finds lamp events by chroma
+shift (calibrate crops per venue — see `.claude/commands/airs.md` Phase 1); verify each
+candidate against full frames, watching for the lamp-gap trap (two lamp onsets >0.2s
+apart = a camera pan faked one side). Manual path: frame-step in mpv (`.` / `,`).
+For each touch:
 
 1. Find the **first frame where a scoring lamp is lit**. That timestamp in seconds
    (e.g. `74.312`) is the light time — the anchor everything else hangs off.
-2. Append a row to `clips/touches.csv`:  `t001,clips/match-dense.mp4,74.312`
-3. Record which lamps lit in `frames/t001/context.json` (create the dir; copy the shape
-   from `frames/context.example.json` — lights only, the timeline slot stays empty until
-   a CV layer exists). This is human-recorded ground data for the adjudication pass.
+2. Append a row to `clips/touches.csv`:  `m01,videos/MATCH.mp4,74.312`
+3. Record which lamps lit in `frames/m01/context.json` — exactly
+   `{ "lights": { "left": bool|null, "right": bool|null } }`, null = unknown. Nothing
+   else goes in this file (its contents reach pass 2; a stray note can leak the answer).
+   Record lamp uncertainty in ground_truth.csv's notes column instead — that is the
+   tracked record (sidecars are untracked).
 
 Skip touches where the camera cut away mid-phrase — there is nothing to perceive.
 
@@ -58,8 +67,10 @@ touch_id,call,tier,action,notes
   would split). Tier is your judgment; the seeded template rows show the intent.
 - Read the call off the referee's hand signal / score change, not your own opinion.
 
-The 15 seeded template rows are a shot list, not data — replace them with real touches
-(or keep ids distinct and delete the template rows before scoring).
+`clips/ground_truth.csv` holds real match data (currently the 31 JMS touches). New
+matches append rows under their own id prefix; never edit existing matches' rows except
+to correct a verified annotation error. (The original 15-row starter template lives on
+as the test fixture in `tests/fixtures/ground_truth.csv`.)
 
 ## 4. Extract frames  (~seconds per touch)
 
@@ -113,6 +124,16 @@ open reviews/run-<stamp>.html
 Filmstrip + timeline overlay of the perception record + both panels per touch. This is
 the page to argue with a coach over.
 
+Full-resolution pages run ~1MB per touch. For a shareable (<16MB) edition, build
+downscaled thumbnails and point the generator at them with `FRAMES_ROOT`:
+
+```bash
+for d in frames/m*/; do id=$(basename "$d"); mkdir -p /tmp/frames-small/$id; \
+  for f in "$d"*ms.jpg; do ffmpeg -loglevel error -y -i "$f" -vf scale=420:-2 -q:v 8 \
+  "/tmp/frames-small/$id/$(basename "$f")"; done; done
+FRAMES_ROOT=/tmp/frames-small node scripts/review.mjs results/run-<stamp>.jsonl
+```
+
 ## 9. Render the annotated match video
 
 ```bash
@@ -135,11 +156,13 @@ override with `FFMPEG=`). Font and size are `BANNER_FONT` (default Menlo) and
 
 ## Pitfalls
 
-- **Contamination**: `touches.csv` and `context.json` (lights) may feed the probe;
-  `ground_truth.csv` calls must not — they are for score/review/render only. If you
-  want to hint the model, stop (see CLAUDE.md non-negotiables).
+- **Contamination**: `context.json` lights feed the adjudication pass (ground data);
+  `touches.csv` feeds extraction and the post-hoc tools; `ground_truth.csv` calls must
+  never reach a prompt — they are for score/review/render only. If you want to hint the
+  model, stop (see CLAUDE.md non-negotiables).
 - **30 fps ceiling**: tier-3 touches (hand-vs-foot, contested tempo) are expected to be
   unresolvable at 30 fps. Correct behavior is a hard-case flag and a hedged or abstained
   call — that is a finding. Re-shoot at 240 fps before concluding the model can't do it.
-- **Stub runs render too** (banners come from canned data, output is stamped as such) —
-  useful for checking the video pipeline before the API run.
+- **Stub runs render too** (banners come from canned data; the stub notice appears in
+  the terminal and on the review page, not burned into the mp4) — useful for checking
+  the video pipeline before the API run.

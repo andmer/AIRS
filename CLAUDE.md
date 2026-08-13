@@ -46,9 +46,11 @@ clips/touches.csv              manifest written while scrubbing: touch_id, clip,
 RUNBOOK.md                     match mp4 → annotated scoring video, step by step
 SPEC.md                        PRD/spec: hypothesis, architecture, decision criteria, results, roadmap
 tests/                         npm test (plumbing + annotation invariants), npm run test:golden (lamp detector)
-clips/ground_truth.csv         touch_id, call, tier, action, notes — doubles as the shot list
-frames/<touch_id>/             extracted frames + optional context.json
-results/run-<stamp>.jsonl      first line is a meta row (models, prompt hash, stub flag)
+clips/ground_truth.csv         touch_id, call, tier, action, notes — the referee's calls (real data; lamp state encoded in action/notes)
+frames/<touch_id>/             extracted frames + context.json lamp sidecar (both untracked; sidecar = lights object ONLY, no notes)
+videos/                        raw match footage (untracked, too large for git)
+results/run-<stamp>.jsonl      first line is a meta row (models, prompt hash, stub flag, mode)
+results/interactive/           per-touch p1-/p2- pass files from interactive-mode subagents (untracked)
 ```
 
 `frames/context.example.json` shows the optional per-touch sidecar: the **human-recorded
@@ -63,8 +65,8 @@ without any prompt change.
 ```bash
 npm install
 export ANTHROPIC_API_KEY=sk-ant-...        # nothing loads a .env file; export it
-./scripts/extract-frames.sh clips/bout1.mp4 74.312 t001
-node scripts/probe.mjs t001 --pass1-only   # eyeball perception before spending a full run
+./scripts/extract-frames.sh videos/MATCH.mp4 74.312 m01
+node scripts/probe.mjs m01 --pass1-only    # eyeball perception before spending a full run
 node scripts/probe.mjs
 node scripts/score.mjs results/run-<stamp>.jsonl
 ```
@@ -89,17 +91,21 @@ subagents instead of probe.mjs. The discipline that makes this valid:
 - **One subagent per pass, fresh context each.** The pass-1 subagent gets
   `00_rules_preamble.md` + `01_perception.md` and Reads the frames in `frames/<id>/`
   (Claude Code renders JPEGs; the filenames carry the offsets). The pass-2 subagent gets
-  the preamble + `02_adjudication.md` + the perception JSON + the light state from
-  `context.json` — never the frames.
+  the preamble + `02_adjudication.md` + the perception JSON + the lights object pasted
+  INLINE by the orchestrator — it never reads context.json itself and never sees frames.
+  (Inline keeps it byte-equivalent to what probe.mjs sends, and guarantees nothing but
+  the lights object can reach pass 2.)
 - **The orchestrating session must not do either pass inline.** It has usually read
   `ground_truth.csv` and the frames, so it is contaminated by construction. Subagents
   inherit nothing from the session's context; they are clean as long as the expected
   call is never pasted into their prompts.
 - Pin subagent models to match the probe (perception: sonnet, adjudication: opus).
 - Append rows to `results/run-<stamp>-interactive.jsonl` with a meta row containing
-  `"mode": "interactive"` — score.mjs works unchanged. Interactive rows are for prompt
-  debugging, not the results table: the Claude Code harness system prompt differs from
-  a raw API call, and these runs bill Claude Code usage rather than the API key.
+  `"mode": "interactive"` — score.mjs works unchanged. Interactive runs are valid
+  proof-of-concept evidence (the JMS results in SPEC.md are one), but they are not
+  1:1 comparable with API runs — the Claude Code harness system prompt differs from a
+  raw API call, and they bill Claude Code usage rather than the API key. The API probe
+  is the canonical instrument for cross-run comparisons once a key exists.
 
 ## Cost
 
