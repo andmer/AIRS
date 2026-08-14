@@ -125,23 +125,44 @@ function markersFor(fencer) {
   return m.sort((a, b) => a.ms - b.ms);
 }
 
-// Lane geometry, as offsets from the bottom of the padded frame.
+// Lane geometry, as offsets from the bottom of the padded frame. Lanes sit in the
+// upper part of the band (bottom ~60px stays empty) so a player that crops the
+// frame edge cannot swallow the RIGHT lane. Event names are NOT drawn at the dots
+// — clustered events near the light overlap into mush at this axis compression —
+// each lane instead gets a live TICKER row showing the current event as it fires.
 const LANES = {
-  L: { dotY: 144, barY: 142, baseY: 141, above: 168, below: 132, color: "0x5b9dff", axis: xL },
-  R: { dotY: 56,  barY: 54,  baseY: 53,  above: 80,  below: 44,  color: "0xff7069", axis: xR },
+  L: { base: 148, color: "0x5b9dff", cap: "0xcfe3ff", axis: xL, tickerY: 194, tickerX: `${ML + 92}` },
+  R: { base: 84,  color: "0xff7069", cap: "0xffd9d7", axis: xR, tickerY: 194, tickerX: `w-128-text_w` },
 };
-const CONTACT = { dotY: 100, above: 124, below: 88, color: "0xb191ff" };
+const CONTACT = { dotY: 116, color: "0xb191ff" };
+
+function tickerEntries(markers) {
+  const out = [];
+  for (const m of markers) {
+    const last = out[out.length - 1];
+    if (last && last.ms === m.ms) last.label += ` + ${m.label}`;
+    else out.push({ ms: m.ms, label: m.label });
+  }
+  return out;
+}
 
 function laneFilters(markers, lane, evTime) {
   const F = [];
-  markers.forEach((m, i) => {
+  F.push(`drawbox=x=${ML}:y=ih-${lane.base}:w=${MR - ML}:h=2:color=0x3a3b3e:t=fill`);
+  for (let ms = -2000; ms <= 0; ms += 500)
+    F.push(`drawbox=x=${lane.axis(ms)}:y=ih-${lane.base + 5}:w=1:h=10:color=0x55565a:t=fill`);
+  markers.forEach((m) => {
     const px = lane.axis(m.ms);
     const th = evTime(m.ms).toFixed(3);
-    const yTxt = i % 2 === 0 ? lane.above : lane.below;
-    F.push(`drawbox=x=${px - 4}:y=ih-${lane.dotY}:w=8:h=8:color=${lane.color}@0.3:t=fill`);
-    F.push(`drawbox=x=${px - 5}:y=ih-${lane.dotY + 1}:w=10:h=10:color=${lane.color}:t=fill:enable='gte(t,${th})'`);
-    F.push(`drawtext=text=${sane(`${m.label} ${fmtMs(m.ms)}`)}:font=${FONT}:fontsize=15:fontcolor=${lane.color}:` +
-      `alpha='if(gte(t,${th}),1,0.3)':x='max(2,min(w-text_w-2,${px}-text_w/2))':y=h-${yTxt}`);
+    F.push(`drawbox=x=${px - 5}:y=ih-${lane.base + 6}:w=10:h=10:color=${lane.color}@0.35:t=fill`);
+    F.push(`drawbox=x=${px - 7}:y=ih-${lane.base + 8}:w=14:h=14:color=${lane.color}:t=fill:enable='gte(t,${th})'`);
+  });
+  const es = tickerEntries(markers);
+  es.forEach((m, i) => {
+    const a = evTime(m.ms).toFixed(3);
+    const en = i + 1 < es.length ? `between(t,${a},${evTime(es[i + 1].ms).toFixed(3)})` : `gte(t,${a})`;
+    F.push(`drawtext=text=${sane(`${m.label} ${fmtMs(m.ms)}`)}:font=${FONT}:fontsize=20:fontcolor=${lane.color}:` +
+      `enable='${en}':x='${lane.tickerX}':y=h-${lane.tickerY}`);
   });
   return F;
 }
@@ -157,34 +178,24 @@ function bandFilters(p, mode) {
     ? `clip(((t/${REPLAY_FACTOR}-${REPLAY_FROM})*1000+${-T0})/${-T0},0,${(1 + OVER).toFixed(4)})`
     : `clip(((t-${mode.FA})*1000+${-T0})/${-T0},0,${(1 + OVER).toFixed(4)})`;
   const F = [`pad=iw:ih+${BAND}:0:0:color=0x17181a`];
-  // Lane baselines with 500ms notches on each mirrored axis; ends labelled -2000ms.
-  for (const k of ["L", "R"]) {
-    const lane = LANES[k];
-    F.push(`drawbox=x=${ML}:y=ih-${lane.baseY}:w=${MR - ML}:h=2:color=0x3a3b3e:t=fill`);
-    for (let ms = -2000; ms <= 0; ms += 500)
-      F.push(`drawbox=x=${lane.axis(ms)}:y=ih-${lane.baseY + 4}:w=1:h=10:color=0x55565a:t=fill`);
-  }
-  F.push(`drawtext=text=-2000ms:font=${FONT}:fontsize=13:fontcolor=0x77787c:x=${ML}:y=h-${LANES.L.below}`);
-  F.push(`drawtext=text=-2000ms:font=${FONT}:fontsize=13:fontcolor=0x77787c:x='${MR}-text_w':y=h-${LANES.R.above}`);
   // Centre LIGHT line — where the two bars meet at the touch.
-  F.push(`drawbox=x=${CX - 1}:y=ih-${BAND - 24}:w=2:h=${BAND - 32}:color=0xf59e0b@0.9:t=fill`);
-  F.push(`drawtext=text=LIGHT:font=${FONT}:fontsize=14:fontcolor=0xf5b942:x='${CX}-text_w/2':y=h-194`);
-  F.push(`drawbox=x=${CX - 9}:y=ih-${BAND - 24}:w=18:h=${BAND - 32}:color=0xf59e0b@0.45:t=fill:` +
+  F.push(`drawbox=x=${CX - 1}:y=ih-172:w=2:h=100:color=0xf59e0b@0.9:t=fill`);
+  F.push(`drawtext=text=LIGHT:font=${FONT}:fontsize=16:fontcolor=0xf5b942:x='${CX}-text_w/2':y=h-194`);
+  F.push(`drawbox=x=${CX - 9}:y=ih-172:w=18:h=100:color=0xf59e0b@0.45:t=fill:` +
     `enable='between(t,${evTime(0).toFixed(3)},${(evTime(0) + (mode.replay ? 1.4 : 0.35)).toFixed(3)})'`);
-  F.push(`drawtext=text=LEFT:font=${FONT}:fontsize=15:fontcolor=${LANES.L.color}:x=6:y=h-${LANES.L.above}`);
-  F.push(`drawtext=text=RIGHT:font=${FONT}:fontsize=15:fontcolor=${LANES.R.color}:x=6:y=h-${LANES.R.above}`);
+  // Static lane titles flanking the header row; tickers fill in beside them.
+  F.push(`drawtext=text=LEFT:font=${FONT}:fontsize=20:fontcolor=${LANES.L.color}:x=${ML}:y=h-${LANES.L.tickerY}`);
+  F.push(`drawtext=text=RIGHT:font=${FONT}:fontsize=20:fontcolor=${LANES.R.color}:x='w-${ML}-text_w':y=h-${LANES.R.tickerY}`);
   if (p) {
     F.push(...laneFilters(markersFor(p.left), LANES.L, evTime));
     F.push(...laneFilters(markersFor(p.right), LANES.R, evTime));
     // Blade contacts approach the centre as the clash nears (left-style axis).
     const contacts = (p.blade_contact ?? []).filter((c) => c.ms != null);
-    contacts.forEach((c, i) => {
+    contacts.forEach((c) => {
       const px = xL(c.ms);
       const th = evTime(c.ms).toFixed(3);
-      F.push(`drawbox=x=${px - 4}:y=ih-${CONTACT.dotY}:w=9:h=9:color=${CONTACT.color}@0.3:t=fill`);
-      F.push(`drawbox=x=${px - 5}:y=ih-${CONTACT.dotY + 1}:w=11:h=11:color=${CONTACT.color}:t=fill:enable='gte(t,${th})'`);
-      F.push(`drawtext=text=${sane(`contact/${c.deflection} ${fmtMs(c.ms)}`)}:font=${FONT}:fontsize=15:fontcolor=${CONTACT.color}:` +
-        `alpha='if(gte(t,${th}),1,0.3)':x='max(2,min(w-text_w-2,${px}-text_w/2))':y=h-${i % 2 === 0 ? CONTACT.above : CONTACT.below}`);
+      F.push(`drawbox=x=${px - 5}:y=ih-${CONTACT.dotY}:w=10:h=10:color=${CONTACT.color}@0.35:t=fill`);
+      F.push(`drawbox=x=${px - 6}:y=ih-${CONTACT.dotY + 1}:w=13:h=13:color=${CONTACT.color}:t=fill:enable='gte(t,${th})'`);
     });
     // Converging bars: blue grows from the left, red from the right, meeting at the
     // centre LIGHT line at the touch. drawbox only evaluates x/w once, so the growth
@@ -196,11 +207,11 @@ function bandFilters(p, mode) {
     for (let i = 0; i < NSEG; i++) {
       const on = segT(i).toFixed(3);
       const next = (i + 1 < NSEG ? segT(i + 1) : evTime(T1)).toFixed(3);
-      F.push(`drawbox=x=${ML + i * SEGW}:y=ih-${LANES.L.barY}:w=${SEGW}:h=4:color=${LANES.L.color}:t=fill:enable='gte(t,${on})'`);
-      F.push(`drawbox=x=${MR - (i + 1) * SEGW}:y=ih-${LANES.R.barY}:w=${SEGW}:h=4:color=${LANES.R.color}:t=fill:enable='gte(t,${on})'`);
+      F.push(`drawbox=x=${ML + i * SEGW}:y=ih-${LANES.L.base + 3}:w=${SEGW}:h=6:color=${LANES.L.color}:t=fill:enable='gte(t,${on})'`);
+      F.push(`drawbox=x=${MR - (i + 1) * SEGW}:y=ih-${LANES.R.base + 3}:w=${SEGW}:h=6:color=${LANES.R.color}:t=fill:enable='gte(t,${on})'`);
       const capEn = i + 1 < NSEG ? `between(t,${on},${next})` : `gte(t,${on})`;
-      F.push(`drawbox=x=${ML + (i + 1) * SEGW - 2}:y=ih-${LANES.L.dotY + 2}:w=4:h=14:color=0xcfe3ff:t=fill:enable='${capEn}'`);
-      F.push(`drawbox=x=${MR - (i + 1) * SEGW - 2}:y=ih-${LANES.R.dotY + 2}:w=4:h=14:color=0xffd9d7:t=fill:enable='${capEn}'`);
+      F.push(`drawbox=x=${ML + (i + 1) * SEGW - 2}:y=ih-${LANES.L.base + 9}:w=5:h=18:color=${LANES.L.cap}:t=fill:enable='${capEn}'`);
+      F.push(`drawbox=x=${MR - (i + 1) * SEGW - 3}:y=ih-${LANES.R.base + 9}:w=5:h=18:color=${LANES.R.cap}:t=fill:enable='${capEn}'`);
     }
   }
   return F.join(",");
