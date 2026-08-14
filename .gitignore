@@ -19,3 +19,4 @@ renders/segments/
 # Run records (results/*.jsonl) stay tracked — they ARE the experiment.
 # The per-touch subagent intermediates are folded into the jsonl already.
 results/interactive/
+.idea/
